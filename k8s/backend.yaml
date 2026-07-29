@@ -42,7 +42,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: backend
-          image: kubewise/backend:2.0.0
+          image: 235951409983.dkr.ecr.us-east-1.amazonaws.com/kubewise-backend:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

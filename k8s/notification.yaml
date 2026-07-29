@@ -42,7 +42,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: notification
-          image: kubewise/notification:1.0.0
+          image: 235951409983.dkr.ecr.us-east-1.amazonaws.com/kubewise-notification:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: REDIS_HOST

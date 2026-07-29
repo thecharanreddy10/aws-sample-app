@@ -14,6 +14,11 @@ from kubernetes import client, config
 from kubernetes.client import ApiException
 from redis.asyncio import Redis
 
+try:
+    from kubernetes.config import ConfigException
+except ImportError:  # pragma: no cover - compatibility fallback
+    from kubernetes.config.config_exception import ConfigException
+
 from config import Settings
 from k8s_helpers import (
     deployment_name_from_owner,
@@ -64,6 +69,7 @@ class KubeClients:
 
 
 kube_clients: KubeClients | None = None
+kubernetes_available = False
 redis_client = Redis(
     host=settings.redis_host,
     port=settings.redis_port,
@@ -73,21 +79,79 @@ redis_client = Redis(
 collector_task: asyncio.Task[Any] | None = None
 
 
-def load_kube_config() -> None:
+def _is_kubernetes_config_error(exc: Exception) -> bool:
+    return isinstance(exc, (ConfigException, FileNotFoundError, OSError, TypeError, ValueError))
+
+
+def initialize_kubernetes_clients() -> None:
+    global kubernetes_available, kube_clients
+
+    log_event(level="INFO", message="Starting Monitoring Service...")
+    log_event(level="INFO", message="Trying in-cluster Kubernetes configuration...")
+
     try:
         config.load_incluster_config()
-        log_event(level="INFO", message="startup using in-cluster Kubernetes config")
+    except Exception as exc:
+        if not _is_kubernetes_config_error(exc):
+            raise
+        log_event(level="WARNING", message="In-cluster configuration unavailable.")
+    else:
+        kubernetes_available = True
+        kube_clients = KubeClients()
+        log_event(level="INFO", message="Using in-cluster Kubernetes configuration.")
+        log_event(level="INFO", message="Monitoring Service Ready.")
         return
-    except Exception:
-        log_event(level="WARNING", message="in-cluster config unavailable, trying local kube config")
 
+    log_event(level="INFO", message="Trying kubeconfig...")
     kube_path = settings.kube_config_path or None
-    config.load_kube_config(config_file=kube_path)
-    log_event(level="INFO", message="startup using local kube config")
+    try:
+        config.load_kube_config(config_file=kube_path)
+    except Exception as exc:
+        if not _is_kubernetes_config_error(exc):
+            raise
+        kubernetes_available = False
+        kube_clients = None
+        log_event(level="WARNING", message="No Kubernetes configuration found. Running in local development mode.")
+        log_event(level="INFO", message="Monitoring Service Ready.")
+        return
+
+    kubernetes_available = True
+    kube_clients = KubeClients()
+    log_event(level="INFO", message="Using kubeconfig Kubernetes configuration.")
+    log_event(level="INFO", message="Monitoring Service Ready.")
+
+
+def build_local_development_snapshot() -> dict[str, Any]:
+    summary = {
+        "nodes": 0,
+        "pods": 0,
+        "deployments": 0,
+        "namespaces": 0,
+        "services": 0,
+        "cpuUtilization": "0.00%",
+        "memoryUtilization": "0.00%",
+        "cpuUtilizationPercent": 0.0,
+        "memoryUtilizationPercent": 0.0,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "status": "local-development",
+        "clusterConnected": False,
+        "message": "No Kubernetes cluster available.",
+    }
+    return {
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "nodes": {"items": [], "metrics": []},
+        "pods": {"items": []},
+        "deployments": {"items": []},
+        "metrics": {"nodeMetrics": [], "podMetrics": {}},
+        "namespaces": {"items": []},
+        "services": {"items": []},
+        "summary": summary,
+    }
 
 
 def list_nodes() -> list[dict[str, Any]]:
-    assert kube_clients is not None
+    if not kubernetes_available or kube_clients is None:
+        return []
     response = kube_clients.core_api.list_node()
     nodes: list[dict[str, Any]] = []
 
@@ -108,7 +172,8 @@ def list_nodes() -> list[dict[str, Any]]:
 
 
 def list_node_metrics() -> list[dict[str, Any]]:
-    assert kube_clients is not None
+    if not kubernetes_available or kube_clients is None:
+        return []
     metrics = kube_clients.custom_api.list_cluster_custom_object(
         group="metrics.k8s.io",
         version="v1beta1",
@@ -127,7 +192,8 @@ def list_node_metrics() -> list[dict[str, Any]]:
 
 
 def list_pod_metrics() -> dict[str, dict[str, int]]:
-    assert kube_clients is not None
+    if not kubernetes_available or kube_clients is None:
+        return {}
     metrics = kube_clients.custom_api.list_cluster_custom_object(
         group="metrics.k8s.io",
         version="v1beta1",
@@ -156,7 +222,8 @@ def list_pod_metrics() -> dict[str, dict[str, int]]:
 
 
 def list_pods() -> list[dict[str, Any]]:
-    assert kube_clients is not None
+    if not kubernetes_available or kube_clients is None:
+        return []
     pod_metrics = list_pod_metrics()
     response = kube_clients.core_api.list_pod_for_all_namespaces()
 
@@ -213,7 +280,8 @@ def list_pods() -> list[dict[str, Any]]:
 
 
 def list_deployments() -> list[dict[str, Any]]:
-    assert kube_clients is not None
+    if not kubernetes_available or kube_clients is None:
+        return []
     response = kube_clients.apps_api.list_deployment_for_all_namespaces()
     deployments: list[dict[str, Any]] = []
 
@@ -247,13 +315,15 @@ def list_deployments() -> list[dict[str, Any]]:
 
 
 def list_namespaces() -> list[str]:
-    assert kube_clients is not None
+    if not kubernetes_available or kube_clients is None:
+        return []
     response = kube_clients.core_api.list_namespace()
     return [item.metadata.name for item in response.items]
 
 
 def list_services() -> list[dict[str, Any]]:
-    assert kube_clients is not None
+    if not kubernetes_available or kube_clients is None:
+        return []
     response = kube_clients.core_api.list_service_for_all_namespaces()
     return [
         {
@@ -267,6 +337,23 @@ def list_services() -> list[dict[str, Any]]:
 
 
 def summarize() -> dict[str, Any]:
+    if not kubernetes_available:
+        return {
+            "nodes": 0,
+            "pods": 0,
+            "deployments": 0,
+            "namespaces": 0,
+            "services": 0,
+            "cpuUtilization": "0.00%",
+            "memoryUtilization": "0.00%",
+            "cpuUtilizationPercent": 0.0,
+            "memoryUtilizationPercent": 0.0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "status": "local-development",
+            "clusterConnected": False,
+            "message": "No Kubernetes cluster available.",
+        }
+
     nodes = list_nodes()
     pods = list_pods()
     deployments = list_deployments()
@@ -317,6 +404,9 @@ def summarize() -> dict[str, Any]:
 
 
 async def build_snapshot() -> dict[str, Any]:
+    if not kubernetes_available:
+        return build_local_development_snapshot()
+
     started = time.perf_counter()
     nodes = list_nodes()
     node_metrics = list_node_metrics()
@@ -368,19 +458,24 @@ async def cache_refresh_loop() -> None:
 
 async def read_cached_snapshot() -> dict[str, Any]:
     data = await redis_client.get(settings.redis_key_cache)
-    if not data:
-        raise HTTPException(status_code=503, detail="Monitoring cache not ready")
-    return json.loads(data)
+    if data:
+        return json.loads(data)
+    if not kubernetes_available:
+        return build_local_development_snapshot()
+    raise HTTPException(status_code=503, detail="Monitoring cache not ready")
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global collector_task, kube_clients
-    log_event(level="INFO", message="startup monitoring service booting")
-    load_kube_config()
-    kube_clients = KubeClients()
+    initialize_kubernetes_clients()
+    try:
+        await redis_client.ping()
+        log_event(level="INFO", message="Redis initialized.")
+    except Exception as exc:
+        log_event(level="WARNING", message=f"Redis unavailable during startup: {exc}")
     collector_task = asyncio.create_task(cache_refresh_loop())
-    log_event(level="INFO", message="startup monitoring cache scheduler ready")
+    log_event(level="INFO", message="Scheduler started.")
     yield
     if collector_task:
         collector_task.cancel()
@@ -418,13 +513,33 @@ async def request_logging_middleware(request: Request, call_next):
 @app.get("/health")
 async def health() -> dict[str, Any]:
     log_event(level="INFO", message="health probe")
+    payload: dict[str, Any] = {
+        "status": "healthy",
+        "clusterConnected": kubernetes_available,
+        "cache": "ready",
+        "mode": "local-development" if not kubernetes_available else "kubernetes",
+    }
+
     try:
         await redis_client.ping()
+    except Exception as exc:
+        log_event(level="WARNING", message=f"health redis check failed: {exc}")
+        payload["redis"] = "unavailable"
+        return payload
+
+    payload["redis"] = "healthy"
+    if not kubernetes_available:
+        payload["message"] = "No Kubernetes cluster available."
+        return payload
+
+    try:
         await read_cached_snapshot()
-        return {"status": "healthy", "cache": "ready"}
     except (ApiException, HTTPException) as exc:
         log_event(level="WARNING", message=f"health degraded: {exc}")
-        return {"status": "degraded", "cache": "warming", "detail": str(exc)}
+        payload["cache"] = "warming"
+        payload["detail"] = str(exc)
+
+    return payload
 
 
 @app.get("/nodes")

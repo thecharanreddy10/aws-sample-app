@@ -1,0 +1,169 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: kubewise-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    networks:
+      - kubewise-network
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  backend:
+    image: kubewise-backend:latest
+    container_name: kubewise-backend
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      monitoring-service:
+        condition: service_started
+      recommendation-engine:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    environment:
+      APP_NAME: kubewise-backend
+      APP_VERSION: 2.1.0
+      LOG_LEVEL: INFO
+      POD_NAMESPACE: kubewise
+      POD_NAME: backend
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      LOAD_DURATION_SECONDS: 30
+      STRESS_DURATION_SECONDS: 90
+      HTTP_TIMEOUT_SECONDS: 10
+      MONITORING_BASE_URL: http://monitoring-service:8080
+      RECOMMENDATION_BASE_URL: http://recommendation-engine:8080
+      REDIS_KEY_EVENTS: kubewise:load_events
+      REDIS_KEY_WORKER: kubewise:worker_events
+      REDIS_KEY_NOTIFICATION: kubewise:notification_events
+      REDIS_KEY_GENERATE_LOAD_COUNT: kubewise:generate_load_count
+      REDIS_KEY_STRESS_COUNT: kubewise:stress_count
+    networks:
+      - kubewise-network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  frontend:
+    image: kubewise-frontend:latest
+    container_name: kubewise-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    networks:
+      - kubewise-network
+
+  monitoring-service:
+    image: kubewise-monitoring:latest
+    container_name: kubewise-monitoring
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      APP_NAME: kubewise-monitoring
+      LOG_LEVEL: INFO
+      POD_NAMESPACE: kubewise
+      POD_NAME: monitoring-service
+      NAMESPACE_SCOPE: ""
+      KUBECONFIG_PATH: ""
+      REQUEST_TIMEOUT_SECONDS: 10
+      REFRESH_INTERVAL_SECONDS: 30
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      REDIS_KEY_MONITORING_CACHE: kubewise:monitoring:cache
+    networks:
+      - kubewise-network
+
+  recommendation-engine:
+    image: kubewise-recommendation:latest
+    container_name: kubewise-recommendation
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      APP_NAME: kubewise-recommendation
+      LOG_LEVEL: INFO
+      POD_NAMESPACE: kubewise
+      POD_NAME: recommendation-engine
+      ANALYSIS_INTERVAL_SECONDS: 30
+      PRICE_PER_MILLICORE_HOUR: 0.000011
+      PRICE_PER_MIB_HOUR: 0.000007
+      HOURS_PER_MONTH: 730
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      REDIS_KEY_MONITORING_CACHE: kubewise:monitoring:cache
+      REDIS_KEY_RECOMMENDATIONS: kubewise:recommendations
+    networks:
+      - kubewise-network
+
+  worker:
+    image: kubewise-worker:latest
+    container_name: kubewise-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      APP_NAME: kubewise-worker
+      LOG_LEVEL: INFO
+      POD_NAMESPACE: kubewise
+      POD_NAME: worker
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      WORKER_INTERVAL_SECONDS: 10
+      REDIS_KEY_EVENTS: kubewise:load_events
+      REDIS_KEY_WORKER: kubewise:worker_events
+    networks:
+      - kubewise-network
+
+  notification-service:
+    image: kubewise-notification:latest
+    container_name: kubewise-notification
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      APP_NAME: kubewise-notification
+      LOG_LEVEL: INFO
+      POD_NAMESPACE: kubewise
+      POD_NAME: notification-service
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      NOTIFICATION_INTERVAL_SECONDS: 30
+      REDIS_KEY_EVENTS: kubewise:load_events
+      REDIS_KEY_NOTIFICATION: kubewise:notification_events
+    networks:
+      - kubewise-network
+
+networks:
+  kubewise-network:
+    name: kubewise-network
+    driver: bridge
+
+volumes:
+  redis-data:
+    name: kubewise-redis-data
