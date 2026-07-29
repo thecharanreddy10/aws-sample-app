@@ -26,36 +26,69 @@ MEMORY_DECIMAL_FACTORS = {
 }
 
 
-def parse_cpu_to_millicores(value: str | None) -> int:
-    if not value:
+def safe_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def parse_cpu_to_millicores(value: Any) -> int:
+    if value is None:
+        return 0
+
+    if not isinstance(value, str):
+        value = str(value)
+
+    if not value.strip():
         return 0
 
     raw = value.strip()
     for suffix, factor in CPU_FACTORS.items():
         if raw.endswith(suffix):
-            number = float(raw[: -len(suffix)] or "0")
-            return int(number * factor)
+            try:
+                number = float(raw[: -len(suffix)] or "0")
+                return int(number * factor)
+            except (TypeError, ValueError):
+                return 0
 
-    return int(float(raw) * 1000)
+    try:
+        return int(float(raw) * 1000)
+    except (TypeError, ValueError):
+        return 0
 
 
-def parse_memory_to_mib(value: str | None) -> int:
-    if not value:
+def parse_memory_to_mib(value: Any) -> int:
+    if value is None:
+        return 0
+
+    if not isinstance(value, str):
+        value = str(value)
+
+    if not value.strip():
         return 0
 
     raw = value.strip()
 
     for suffix, factor in MEMORY_BINARY_FACTORS.items():
         if raw.endswith(suffix):
-            number = float(raw[: -len(suffix)] or "0")
-            return int(number * factor)
+            try:
+                number = float(raw[: -len(suffix)] or "0")
+                return int(number * factor)
+            except (TypeError, ValueError):
+                return 0
 
     for suffix, factor in MEMORY_DECIMAL_FACTORS.items():
         if raw.endswith(suffix):
-            number = float(raw[: -len(suffix)] or "0")
-            return int(number * factor)
+            try:
+                number = float(raw[: -len(suffix)] or "0")
+                return int(number * factor)
+            except (TypeError, ValueError):
+                return 0
 
-    return int(float(raw) / (1024 * 1024))
+    try:
+        return int(float(raw) / (1024 * 1024))
+    except (TypeError, ValueError):
+        return 0
 
 
 def extract_container_resource_totals(containers: list[dict[str, Any]]) -> dict[str, int]:
@@ -65,9 +98,10 @@ def extract_container_resource_totals(containers: list[dict[str, Any]]) -> dict[
     memory_limit = 0
 
     for container in containers:
-        resources = container.get("resources", {})
-        requests = resources.get("requests", {})
-        limits = resources.get("limits", {})
+        container_map = safe_dict(container)
+        resources = safe_dict(container_map.get("resources"))
+        requests = safe_dict(resources.get("requests"))
+        limits = safe_dict(resources.get("limits"))
 
         cpu_request += parse_cpu_to_millicores(requests.get("cpu"))
         memory_request += parse_memory_to_mib(requests.get("memory"))
@@ -86,7 +120,7 @@ def deployment_name_from_owner(owner_references: list[dict[str, Any]]) -> str:
     if not owner_references:
         return "unknown"
 
-    owner = owner_references[0]
+    owner = safe_dict(owner_references[0])
     kind = owner.get("kind", "")
     name = owner.get("name", "")
 
