@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubewise Operations Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-1: #f2f6f0;
+            --bg-2: #d7e4d4;
+            --card: #ffffff;
+            --text: #1e2f24;
+            --muted: #5a6f62;
+            --accent: #1f7a46;
+            --accent-dark: #165d35;
+            --high: #b42318;
+            --medium: #a35b00;
+            --low: #1f7a46;
+            --border: #c8d8c9;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100svh;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--text);
+            background: radial-gradient(circle at 20% 10%, #fff 0%, var(--bg-1) 50%, var(--bg-2) 100%);
+            padding: 18px;
+        }
+
+        .shell {
+            max-width: 1280px;
+            margin: 0 auto;
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            background: var(--card);
+            box-shadow: 0 18px 34px rgba(20, 45, 25, 0.14);
+            overflow: hidden;
+        }
+
+        header {
+            padding: 24px;
+            background: linear-gradient(125deg, #1f7a46, #204f34);
+            color: #fff;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.7rem;
+        }
+
+        header p {
+            margin: 8px 0 0;
+            opacity: 0.95;
+        }
+
+        main {
+            padding: 18px;
+            display: grid;
+            gap: 16px;
+        }
+
+        .actions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 10px;
+        }
+
+        button {
+            border: 0;
+            border-radius: 10px;
+            padding: 11px 12px;
+            font-weight: 700;
+            color: #fff;
+            background: var(--accent);
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: var(--accent-dark);
+        }
+
+        .status {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px;
+            color: var(--muted);
+            background: #f8fcf8;
+            min-height: 42px;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+        }
+
+        .card {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+            background: #fff;
+        }
+
+        .card h3 {
+            margin: 0;
+            font-size: 0.86rem;
+            color: var(--muted);
+            letter-spacing: 0.2px;
+        }
+
+        .card p {
+            margin: 8px 0 0;
+            font-size: 1.4rem;
+            font-weight: 700;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 12px;
+        }
+
+        .section {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+            background: #fff;
+        }
+
+        .section h2 {
+            margin: 0 0 10px;
+            font-size: 1rem;
+        }
+
+        .table-wrap {
+            overflow: auto;
+            max-height: 280px;
+            border: 1px solid #e4ede4;
+            border-radius: 8px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 680px;
+        }
+
+        th,
+        td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #eef4ee;
+            font-size: 0.87rem;
+        }
+
+        th {
+            background: #eff7ef;
+        }
+
+        .rec-columns {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .rec-box {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px;
+            min-height: 120px;
+        }
+
+        .rec-box h3 {
+            margin: 0 0 8px;
+            font-size: 0.92rem;
+        }
+
+        .high h3 { color: var(--high); }
+        .medium h3 { color: var(--medium); }
+        .low h3 { color: var(--low); }
+
+        .rec-item {
+            margin: 0 0 8px;
+            padding: 8px;
+            border-radius: 8px;
+            background: #f8faf8;
+            font-size: 0.83rem;
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 0.88rem;
+        }
+
+        .chart-wrap {
+            position: relative;
+            min-height: 260px;
+        }
+
+        @media (max-width: 980px) {
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+
+            .rec-columns {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <header>
+            <h1>Kubewise Operations Dashboard</h1>
+            <p>Backend API gateway driven visibility, cluster scoring, and dynamic cost recommendations.</p>
+        </header>
+        <main>
+            <section class="actions">
+                <button id="healthBtn">Health Check</button>
+                <button id="refreshBtn">Refresh Metrics</button>
+                <button id="loadBtn">Generate Load</button>
+                <button id="stressBtn">Stress Test</button>
+            </section>
+            <div class="status" id="status">Waiting for first dashboard refresh...</div>
+
+            <section class="cards" id="scoreCards"></section>
+            <section class="cards" id="summaryCards"></section>
+
+            <section class="grid-2">
+                <div class="section">
+                    <h2>Top Resource Consumers</h2>
+                    <div class="chart-wrap">
+                        <canvas id="consumersChart"></canvas>
+                    </div>
+                </div>
+                <div class="section">
+                    <h2>Recommendation Summary</h2>
+                    <div class="chart-wrap">
+                        <canvas id="severityChart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>Deployments</h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Namespace</th>
+                                <th>Name</th>
+                                <th>Replicas</th>
+                                <th>CPU Request (m)</th>
+                                <th>Memory Request (Mi)</th>
+                                <th>CPU Limit (m)</th>
+                                <th>Memory Limit (Mi)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="deploymentsBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>Pods</h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Namespace</th>
+                                <th>Pod</th>
+                                <th>Deployment</th>
+                                <th>Status</th>
+                                <th>Restarts</th>
+                                <th>CPU Usage (m)</th>
+                                <th>Memory Usage (Mi)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="podsBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>Recommendations</h2>
+                <p class="muted">Grouped by severity and refreshed every 30 seconds.</p>
+                <div class="rec-columns">
+                    <div class="rec-box high"><h3>High</h3><div id="highRec"></div></div>
+                    <div class="rec-box medium"><h3>Medium</h3><div id="mediumRec"></div></div>
+                    <div class="rec-box low"><h3>Low</h3><div id="lowRec"></div></div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const statusEl = document.getElementById("status");
+        const scoreCardsEl = document.getElementById("scoreCards");
+        const summaryCardsEl = document.getElementById("summaryCards");
+        const deploymentsBody = document.getElementById("deploymentsBody");
+        const podsBody = document.getElementById("podsBody");
+        const highRec = document.getElementById("highRec");
+        const mediumRec = document.getElementById("mediumRec");
+        const lowRec = document.getElementById("lowRec");
+
+        let consumersChart = null;
+        let severityChart = null;
+
+        async function callApi(path, method = "GET") {
+            const response = await fetch(path, {
+                method,
+                headers: { "Content-Type": "application/json" }
+            });
+            const payload = await response.json();
+            if (!response.ok) {
+                throw new Error(payload.detail || `${method} ${path} failed`);
+            }
+            return payload;
+        }
+
+        function setStatus(message, error = false) {
+            statusEl.textContent = message;
+            statusEl.style.color = error ? "#b42318" : "#4e6254";
+        }
+
+        function renderCards(dashboard) {
+            const score = dashboard.clusterScore || {};
+            scoreCardsEl.innerHTML = [
+                ["Cluster Health", score.clusterHealth ?? 0],
+                ["Cost Efficiency", score.costEfficiency ?? 0],
+                ["Optimization Score", score.optimizationScore ?? 0],
+                ["Potential Monthly Savings", `$${Number(dashboard.potentialMonthlySavings || 0).toFixed(2)}`],
+                ["Potential Annual Savings", `$${Number(dashboard.potentialAnnualSavings || 0).toFixed(2)}`]
+            ].map(([title, value]) => `
+                <article class="card">
+                    <h3>${title}</h3>
+                    <p>${value}</p>
+                </article>
+            `).join("");
+
+            const summary = dashboard.summary || {};
+            summaryCardsEl.innerHTML = [
+                ["Nodes", summary.nodes ?? 0],
+                ["Pods", summary.pods ?? 0],
+                ["Deployments", summary.deployments ?? 0],
+                ["CPU Utilization", summary.cpuUtilization || "0%"],
+                ["Memory Utilization", summary.memoryUtilization || "0%"]
+            ].map(([title, value]) => `
+                <article class="card">
+                    <h3>${title}</h3>
+                    <p>${value}</p>
+                </article>
+            `).join("");
+        }
+
+        function renderTableRows(items, bodyEl, rowBuilder) {
+            bodyEl.innerHTML = items.map(rowBuilder).join("");
+        }
+
+        function renderRecommendations(items) {
+            const groups = { high: [], medium: [], low: [] };
+            items.forEach((item) => {
+                const key = String(item.severity || "low").toLowerCase();
+                if (groups[key]) {
+                    groups[key].push(item);
+                }
+            });
+
+            const renderGroup = (groupItems) => groupItems.length
+                ? groupItems.slice(0, 6).map((item) => `
+                    <div class="rec-item">
+                        <strong>${item.service}</strong> (${item.namespace})<br>
+                        ${item.recommendation}<br>
+                        <span class="muted">Monthly: ${item.estimatedMonthlySaving}, Annual: ${item.estimatedAnnualSaving}</span>
+                    </div>
+                `).join("")
+                : '<p class="muted">No items.</p>';
+
+            highRec.innerHTML = renderGroup(groups.high);
+            mediumRec.innerHTML = renderGroup(groups.medium);
+            lowRec.innerHTML = renderGroup(groups.low);
+        }
+
+        function renderCharts(dashboard) {
+            const consumers = dashboard.topResourceConsumers || [];
+            const labels = consumers.map((item) => `${item.namespace}/${item.podName}`);
+            const cpuData = consumers.map((item) => item.cpuUsageMillicores || 0);
+            const memData = consumers.map((item) => item.memoryUsageMiB || 0);
+
+            if (consumersChart) {
+                consumersChart.destroy();
+            }
+            consumersChart = new Chart(document.getElementById("consumersChart"), {
+                type: "bar",
+                data: {
+                    labels,
+                    datasets: [
+                        { label: "CPU (m)", data: cpuData, backgroundColor: "#1f7a46" },
+                        { label: "Memory (Mi)", data: memData, backgroundColor: "#8ab19a" }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+
+            const recSummary = dashboard.recommendationSummary || { high: 0, medium: 0, low: 0 };
+            if (severityChart) {
+                severityChart.destroy();
+            }
+            severityChart = new Chart(document.getElementById("severityChart"), {
+                type: "doughnut",
+                data: {
+                    labels: ["High", "Medium", "Low"],
+                    datasets: [{
+                        data: [recSummary.high || 0, recSummary.medium || 0, recSummary.low || 0],
+                        backgroundColor: ["#b42318", "#a35b00", "#1f7a46"]
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        }
+
+        async function refreshDashboard() {
+            try {
+                setStatus("Refreshing dashboard data...");
+                const dashboard = await callApi("/dashboard");
+                renderCards(dashboard);
+                renderTableRows(dashboard.deployments || [], deploymentsBody, (item) => `
+                    <tr>
+                        <td>${item.namespace}</td>
+                        <td>${item.name}</td>
+                        <td>${item.replicas}</td>
+                        <td>${item.cpuRequestMillicores}</td>
+                        <td>${item.memoryRequestMiB}</td>
+                        <td>${item.cpuLimitMillicores}</td>
+                        <td>${item.memoryLimitMiB}</td>
+                    </tr>
+                `);
+                renderTableRows(dashboard.pods || [], podsBody, (item) => `
+                    <tr>
+                        <td>${item.namespace}</td>
+                        <td>${item.podName}</td>
+                        <td>${item.deployment}</td>
+                        <td>${item.status}</td>
+                        <td>${item.restartCount}</td>
+                        <td>${item.cpuUsageMillicores}</td>
+                        <td>${item.memoryUsageMiB}</td>
+                    </tr>
+                `);
+                renderRecommendations(dashboard.recommendations || []);
+                renderCharts(dashboard);
+                setStatus(`Last updated at ${new Date().toLocaleTimeString()}`);
+            } catch (error) {
+                setStatus(`Refresh failed: ${error.message}`, true);
+            }
+        }
+
+        document.getElementById("healthBtn").addEventListener("click", async () => {
+            try {
+                const data = await callApi("/health");
+                setStatus(`Health: ${data.status}`);
+            } catch (error) {
+                setStatus(`Health check failed: ${error.message}`, true);
+            }
+        });
+
+        document.getElementById("refreshBtn").addEventListener("click", refreshDashboard);
+        document.getElementById("loadBtn").addEventListener("click", async () => {
+            try {
+                await callApi("/generate-load", "POST");
+                setStatus("Generate load completed. Refreshing...");
+                await refreshDashboard();
+            } catch (error) {
+                setStatus(`Generate load failed: ${error.message}`, true);
+            }
+        });
+
+        document.getElementById("stressBtn").addEventListener("click", async () => {
+            try {
+                await callApi("/stress", "POST");
+                setStatus("Stress test completed. Refreshing...");
+                await refreshDashboard();
+            } catch (error) {
+                setStatus(`Stress test failed: ${error.message}`, true);
+            }
+        });
+
+        refreshDashboard();
+        setInterval(refreshDashboard, 30000);
+    </script>
+</body>
+</html>

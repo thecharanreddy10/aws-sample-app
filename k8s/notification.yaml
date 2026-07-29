@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification
+  namespace: kubewise
+  labels:
+    app: notification
+    project: kubewise
+    tier: processing
+    team: platform
+    environment: hackathon
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9091"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: notification
+  template:
+    metadata:
+      labels:
+        app: notification
+        project: kubewise
+        tier: processing
+        team: platform
+        environment: hackathon
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9091"
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: notification
+          image: kubewise/notification:1.0.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: redis
+            - name: REDIS_PORT
+              value: "6379"
+            - name: NOTIFICATION_INTERVAL_SECONDS
+              value: "30"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: LOG_LEVEL
+              value: INFO
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import os, socket; socket.create_connection((os.getenv('REDIS_HOST', 'redis'), int(os.getenv('REDIS_PORT', '6379'))), 2).close()"
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import os, socket; socket.create_connection((os.getenv('REDIS_HOST', 'redis'), int(os.getenv('REDIS_PORT', '6379'))), 2).close()"
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import os, socket; socket.create_connection((os.getenv('REDIS_HOST', 'redis'), int(os.getenv('REDIS_PORT', '6379'))), 2).close()"
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification
+  namespace: kubewise
+  labels:
+    app: notification
+    project: kubewise
+    tier: processing
+    team: platform
+    environment: hackathon
+spec:
+  type: ClusterIP
+  selector:
+    app: notification
+  ports:
+    - name: metrics-placeholder
+      protocol: TCP
+      port: 9091
+      targetPort: 9091

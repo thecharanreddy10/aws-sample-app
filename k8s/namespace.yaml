@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubewise
+  labels:
+    app.kubernetes.io/name: kubewise
+    project: kubewise
+    team: platform
+    environment: hackathon

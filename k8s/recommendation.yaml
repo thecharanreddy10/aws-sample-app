@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recommendation-engine
+  namespace: kubewise
+  labels:
+    app: recommendation-engine
+    project: kubewise
+    tier: ai
+    team: platform
+    environment: hackathon
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: recommendation-engine
+  template:
+    metadata:
+      labels:
+        app: recommendation-engine
+        project: kubewise
+        tier: ai
+        team: platform
+        environment: hackathon
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: recommendation-engine
+          image: kubewise/recommendation-engine:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: REDIS_HOST
+              value: redis
+            - name: REDIS_PORT
+              value: "6379"
+            - name: ANALYSIS_INTERVAL_SECONDS
+              value: "30"
+            - name: REDIS_KEY_MONITORING_CACHE
+              value: kubewise:monitoring:cache
+            - name: REDIS_KEY_RECOMMENDATIONS
+              value: kubewise:recommendations
+            - name: PRICE_PER_MILLICORE_HOUR
+              value: "0.000011"
+            - name: PRICE_PER_MIB_HOUR
+              value: "0.000007"
+            - name: HOURS_PER_MONTH
+              value: "730"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: LOG_LEVEL
+              value: INFO
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 400m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 8
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recommendation-engine
+  namespace: kubewise
+  labels:
+    app: recommendation-engine
+    project: kubewise
+    tier: ai
+    team: platform
+    environment: hackathon
+spec:
+  type: ClusterIP
+  selector:
+    app: recommendation-engine
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
