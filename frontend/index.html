@@ -308,18 +308,24 @@
         const highRec = document.getElementById("highRec");
         const mediumRec = document.getElementById("mediumRec");
         const lowRec = document.getElementById("lowRec");
-
         let consumersChart = null;
         let severityChart = null;
 
-        async function callApi(path, method = "GET") {
-            const response = await fetch(path, {
+        async function callApi(path, method = "GET", body = null) {
+            const options = {
                 method,
                 headers: { "Content-Type": "application/json" }
-            });
-            const payload = await response.json();
+            };
+            if (body !== null) {
+                options.body = JSON.stringify(body);
+            }
+            const response = await fetch(path, options);
+            const contentType = response.headers.get("content-type") || "";
+            const payload = contentType.includes("application/json")
+                ? await response.json()
+                : await response.text();
             if (!response.ok) {
-                throw new Error(payload.detail || `${method} ${path} failed`);
+                throw new Error(payload.detail || payload.message || payload || `${method} ${path} failed`);
             }
             return payload;
         }

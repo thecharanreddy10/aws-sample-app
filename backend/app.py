@@ -209,19 +209,21 @@ async def request_logging_middleware(request: Request, call_next):
     request_count += 1
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
     started = time.perf_counter()
+    path = request.url.path
 
-    log_event(level="INFO", message=f"request start {request.method} {request.url.path}", request_id=request_id)
+    log_event(level="INFO", message=f"request start {request.method} {path}", request_id=request_id)
     try:
         response = await call_next(request)
     except Exception as exc:
-        log_event(level="ERROR", message=f"request failed path={request.url.path} error={exc}", request_id=request_id)
+        log_event(level="ERROR", message=f"request failed path={path} error={exc}", request_id=request_id)
         raise
 
     duration_ms = (time.perf_counter() - started) * 1000
     response.headers["x-request-id"] = request_id
+
     log_event(
         level="INFO",
-        message=f"request complete path={request.url.path} status={response.status_code}",
+        message=f"request complete path={path} status={response.status_code}",
         request_id=request_id,
         duration_ms=duration_ms,
     )
